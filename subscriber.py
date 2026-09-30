@@ -1,135 +1,146 @@
 import socket
-import sys
+
 from protocol import send_json, receive_json
-CLIENT_ID = sys.argv[1] if len(sys.argv) > 1 else "student-1"
-NO_ACK = "--no-ack" in sys.argv
-COURSES = [
-    arg for arg in sys.argv[2:]
-    if arg != "--no-ack"
-]
-if not COURSES:
-    COURSES = ["python"]
+from netutils import bind_random_local_port
+
 def run_subscriber():
-    processed_ids = set()
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect(("127.0.0.1", 5000))
+    client_id = input(
+        "Introdu numele: "
+    ).strip()
+    if not client_id:
+        print("Numele nu poate fi gol.")
+        return
+    topic = input(
+        "Introdu topicul: "
+    ).strip()
+    if not topic:
+        print("Topic-ul nu poate fi gol.")
+        return
+    ack_answer = input(
+        "Trimite ACK? (d/n): "
+    ).strip().lower()
+    no_ack = ack_answer in ("n", "nu")
+    sock = socket.socket(
+        socket.AF_INET,
+        socket.SOCK_STREAM
+    )
+    sock.setsockopt(
+        socket.SOL_SOCKET,
+        socket.SO_REUSEADDR,
+        1
+    )
+    local_ip, local_port = bind_random_local_port(sock)
+    sock.connect(
+        ("127.0.0.1", 5000)
+    )
     print()
-    print("         SUBSCRIBER CONNECTAT")
-    print(f"Client ID : {CLIENT_ID}")
-    print(f"Cursuri   : {COURSES}")
-    print(f"No ACK    : {NO_ACK}")
+    print(f"Nume          : {client_id}")
+    print(f"Topic         : {topic}")
+    print(f"Adresa locala : {local_ip}:{local_port}")
+    print(f"ACK activ     : {not no_ack}")
     print()
+    subscription = {
+        "action": "subscribe",
+        "topic": topic,
+        "clientId": client_id
+    }
     send_json(
         sock,
-        {
-            "action": "subscribe",
-            "topic": "all:students",
-            "clientId": CLIENT_ID
-        }
+        subscription
     )
-    for course in COURSES:
-        send_json(
-            sock,
-            {
-                "action": "subscribe",
-                "topic": f"course:{course}",
-                "clientId": CLIENT_ID
-            }
+    
+    if no_ack:
+
+        print(
+            "Mesajele vor ajunge in DLQ."
         )
-    send_json(
-        sock,
-        {
-            "action": "subscribe",
-            "topic": f"student:{CLIENT_ID}",
-            "clientId": CLIENT_ID
-        }
-    )
-    print(f"[{CLIENT_ID}] Abonamente activate:")
-    print("    all:students")
-    for course in COURSES:
-        print(f"    course:{course}")
-    print(f"    student:{CLIENT_ID}")
-    print()
-    print(f"[{CLIENT_ID}] Astept mesaje...")
+    else:
+        print()
+    print("Astept mesaje...")
     print()
     buffer = ""
     while True:
         try:
-            msg, buffer = receive_json(sock, buffer)
+            msg, buffer = receive_json(
+                sock,
+                buffer
+            )
             if msg is None:
                 print(
-                    f"[{CLIENT_ID}] Brokerul a inchis conexiunea."
+                    "Brokerul a inchis conexiunea."
                 )
                 break
-            msg_id = (
+            message_id = (
                 msg.get("messageId")
                 or msg.get("message_id")
             )
-            topic = msg.get("topic")
-            payload = msg.get("payload")
-            if msg_id in processed_ids:
-                print(
-                    f"[{CLIENT_ID}] DUPLICAT ignorat "
-                    f"pentru messageId={msg_id}"
-                )
-            else:
-                processed_ids.add(msg_id)
-                print(f"[{CLIENT_ID}] MESAJ PRIMIT")
-                print(f"   topic     : {topic}")
-                print(f"   messageId : {msg_id}")
-                print(f"   payload   : {payload}")
-                print()
-            if NO_ACK:
-                print(
-                    f"[{CLIENT_ID}] "
-                    f" NU trimit ACK "
-                    f"pentru messageId={msg_id}"
-                )
-                print()
-                continue
-            send_json(
-                sock,
-                {
-                    "action": "ack",
-                    "clientId": CLIENT_ID,
-                    "messageId": msg_id
-                }
+            message_topic = msg.get(
+                "topic"
             )
-            print(
-                f"[{CLIENT_ID}] ACK trimis "
-                f"pentru messageId={msg_id}"
+            payload = msg.get(
+                "payload"
             )
             print()
+            print("MESAJ PRIMIT")
+            print(
+                f"Topic      : {message_topic}"
+            )
+            print(
+                f"Message ID : {message_id}"
+            )
+            print(
+                f"Mesaj      : {payload}"
+            )
+            if no_ack:
+                print(
+                    f"NU se trimite ACK pentru "
+                    f"messageId={message_id}"
+                )
+                print(
+                    "Brokerul va reincerca livrarea."
+                )
+            else:
+                ack = {
+                    "action": "ack",
+                    "clientId": client_id,
+                    "messageId": message_id
+                }
+                send_json(
+                    sock,
+                    ack
+                )
+                print(
+                    f"Confirmare trimisa pentru "
+                    f"messageId={message_id}"
+                )
         except KeyboardInterrupt:
             print()
             print(
-                f"[{CLIENT_ID}] "
-                f"Inchidere voluntara..."
+                "Inchidere voluntara..."
             )
             break
         except ConnectionResetError:
             print(
-                f"[{CLIENT_ID}] "
-                f"Conexiunea cu brokerul a fost resetata."
+                "Conexiunea cu brokerul a fost inchisa."
             )
             break
         except BrokenPipeError:
             print(
-                f"[{CLIENT_ID}] "
-                f"Conexiunea cu brokerul s-a inchis."
+                "Conexiunea cu brokerul s-a inchis."
             )
             break
-        except Exception as e:
+        except Exception as error:
             print(
-                f"[{CLIENT_ID}] Eroare: {e}"
+                f"Eroare: {error}"
             )
             break
     try:
         sock.close()
     except Exception:
         pass
+
     print(
-        f"[{CLIENT_ID}] Subscriber oprit."
+        f"{client_id} oprit."
     )
-if name == "__main__":
+if __name__ == "__main__":
     run_subscriber()

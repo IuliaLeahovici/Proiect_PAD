@@ -4,5 +4,4 @@ __pycache__/
 .venv/
 venv/
 .env
-broker_storage/*.json
-!broker_storage/.gitkeep
+

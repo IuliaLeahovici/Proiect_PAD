@@ -1,6 +1,7 @@
 import time
-import storage
+
 from broker import MessageBroker
+
 class FakeSocket:
     def __init__(self):
         self.sent = []
@@ -18,9 +19,8 @@ def make_message(message_id="m1"):
         "occurredAt": "2026-09-13T15:29:10+00:00",
         "payload": "Salut"
     }
-def test_publish_routes_message_to_subscriber(tmp_path, monkeypatch):
-    monkeypatch.setattr(storage, "STORAGE_DIR", str(tmp_path))
-    monkeypatch.setattr(storage, "DLQ_FILE", str(tmp_path / "dlq.json"))
+
+def test_publish_routes_message_to_subscriber():
     broker = MessageBroker()
     sock = FakeSocket()
     broker.subscriptions["notificari"] = {"sub-1"}
@@ -31,34 +31,36 @@ def test_publish_routes_message_to_subscriber(tmp_path, monkeypatch):
     assert len(broker.client_queues["sub-1"]) == 1
     assert broker.client_queues["sub-1"][0]["messageId"] == "m1"
     assert len(sock.sent) == 1
-def test_ack_removes_message_from_queue(tmp_path, monkeypatch):
-    monkeypatch.setattr(storage, "STORAGE_DIR", str(tmp_path))
-    monkeypatch.setattr(storage, "DLQ_FILE", str(tmp_path / "dlq.json"))
+def test_ack_removes_message_from_queue():
     broker = MessageBroker()
     broker.client_queues["sub-1"] = [make_message("m1")]
     broker.delivery_meta["sub-1"] = {
-        "m1": {"retries": 1, "lastSent": time.time()}
+        "m1": {
+            "retries": 1,
+            "lastSent": time.time()
+        }
     }
     broker.process_ack("sub-1", "m1")
     assert broker.client_queues["sub-1"] == []
     assert "m1" not in broker.delivery_meta["sub-1"]
-def test_retry_happens_after_ack_timeout(tmp_path, monkeypatch):
-    monkeypatch.setattr(storage, "STORAGE_DIR", str(tmp_path))
-    monkeypatch.setattr(storage, "DLQ_FILE", str(tmp_path / "dlq.json"))
+
+def test_retry_happens_after_ack_timeout():
     broker = MessageBroker()
     sock = FakeSocket()
     broker.active_sockets["sub-1"] = sock
     broker.client_queues["sub-1"] = [make_message("m1")]
     broker.delivery_meta["sub-1"] = {
-        "m1": {"retries": 1, "lastSent": time.time() - 5 - 1}
+        "m1": {
+            "retries": 1,
+            "lastSent": time.time() - 6
+        }
     }
     with broker.lock:
         broker._flush_queue_locked("sub-1")
     assert len(sock.sent) == 1
     assert broker.delivery_meta["sub-1"]["m1"]["retries"] == 2
-def test_message_goes_to_dlq_after_max_attempts(tmp_path, monkeypatch):
-    monkeypatch.setattr(storage, "STORAGE_DIR", str(tmp_path))
-    monkeypatch.setattr(storage, "DLQ_FILE", str(tmp_path / "dlq.json"))
+
+def test_message_goes_to_dlq_after_max_attempts():
     broker = MessageBroker()
     sock = FakeSocket()
     broker.active_sockets["sub-1"] = sock
@@ -72,7 +74,6 @@ def test_message_goes_to_dlq_after_max_attempts(tmp_path, monkeypatch):
     with broker.lock:
         broker._flush_queue_locked("sub-1")
     assert broker.client_queues["sub-1"] == []
-    import json
-    with open(storage.DLQ_FILE, "r", encoding="utf-8") as f:
-        dlq = json.load(f)
-    assert any(item["messageId"] == "dead-1" for item in dlq)
+    assert "dead-1" not in broker.delivery_meta["sub-1"]
+    assert len(broker.dlq) == 1
+    assert broker.dlq[0]["messageId"] == "dead-1"

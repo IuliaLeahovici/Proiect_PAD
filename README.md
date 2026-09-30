@@ -18,6 +18,8 @@ Proiectul implementează un message broker orientat pe evenimente, dezvoltat în
 - Dead Letter Queue (DLQ) pentru interceptarea mesajelor corupte sau care au eșuat în mod repetat la livrare (`dlq.json`).
 - Metadate avansate atașate mesajelor: `messageId`, `correlationId`, `messageType`, `schemaVersion` și `occurredAt` (în format UTC).
 - Deduplicare automată la nivelul subscriberului pe baza `messageId`.
+- Fiecare instanță de client (publisher/subscriber) primește la conectare o adresă locală unică (ip:port), alocată automat de sistemul de operare — afișată la pornire, garantează identificarea univocă a fiecărei instanțe chiar și atunci când sunt pornite simultan mai multe procese.
+- Model de persistență hibrid: starea curentă (livrare, retry, ACK) este gestionată în memoria RAM a brokerului; pe disc (`broker_storage/`) se păstrează o oglindă doar cât timp mesajul e nelivrat — fișierul `<client_id>.json` dispare automat după ce mesajul e confirmat (ACK). DLQ (`dlq.json`) este singura excepție: persistă permanent, chiar și după restart, pentru a păstra un istoric al mesajelor eșuate definitiv.
 
 #  3. Pornirea Sistemului (Pași pentru rulare)
 
