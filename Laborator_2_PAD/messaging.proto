@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package messaging.v1;
+
+// Mesaj transmis prin broker
+message Message {
+  string messageId = 1;
+  string correlationId = 2;
+  string messageType = 3;
+  int32 schemaVersion = 4;
+  string occurredAt = 5;
+  string topic = 6;
+  string payload = 7;
+}
+
+// Cerere de publicare
+message PublishRequest {
+  Message message = 1;
+  string idempotencyKey = 2;
+}
+
+// Raspuns la publicare
+message PublishResponse {
+  bool success = 1;
+  string messageId = 2;
+  string status = 3;
+}
+
+// Cerere de abonare
+message SubscribeRequest {
+  string subscriberId = 1;
+  string topic = 2;
+}
+
+// Confirmarea primirii unui mesaj
+message AckRequest {
+  string subscriberId = 1;
+  string messageId = 2;
+}
+
+message AckResponse {
+  bool success = 1;
+}
+
+// Verificarea rezultatului unei publicari
+message StatusRequest {
+  string idempotencyKey = 1;
+}
+
+message StatusResponse {
+  bool found = 1;
+  string messageId = 2;
+  string status = 3;
+}
+
+// Serviciul central Broker
+service MessageBroker {
+  rpc Publish(PublishRequest) returns (PublishResponse);
+
+  rpc Subscribe(SubscribeRequest) returns (stream Message);
+
+  rpc Acknowledge(AckRequest) returns (AckResponse);
+
+  rpc GetPublishStatus(StatusRequest) returns (StatusResponse);
+}
